@@ -1,0 +1,87 @@
+# Builds all req42 distributions with arc42-generator and publishes them as
+# a workflow artifact, for review before committing dist/.
+#
+# Lives on ci/* branches of this fork only. GENERATOR_REPO/GENERATOR_REF
+# point to the generator version to build with.
+
+name: Generator build
+
+on:
+  push:
+    branches: ['ci/**']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: generator-build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  GENERATOR_REPO: pgerstbach/arc42-generator
+  GENERATOR_REF: feature/project-neutral
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          path: req42
+
+      - uses: actions/checkout@v7
+        with:
+          repository: ${{ env.GENERATOR_REPO }}
+          ref: ${{ env.GENERATOR_REF }}
+          path: generator
+
+      - name: Build Docker image
+        working-directory: generator
+        run: docker compose build
+
+      - name: Run generator
+        working-directory: generator
+        run: |
+          docker compose run -T --rm -v "$GITHUB_WORKSPACE/req42:/project" arc42-builder \
+            bash -c 'groovy build.groovy --config=/project/buildconfig.groovy 2>&1 | tee /project/build.log; exit ${PIPESTATUS[0]}'
+
+      - name: Collect build metadata
+        if: always()
+        run: |
+          {
+            echo "req42-framework: $(git -C req42 rev-parse HEAD)"
+            echo "generator:       $GENERATOR_REPO@$(git -C generator rev-parse HEAD)"
+            (cd generator && docker compose run -T --rm arc42-builder \
+              sh -c 'pandoc --version | head -1; groovy --version; java -version 2>&1 | head -1') || true
+          } > build-info.txt
+          cat build-info.txt
+
+      # dist/ is committed, so git status lists exactly the ZIPs this build rewrote
+      - name: Collect distributions
+        if: always()
+        run: |
+          mkdir -p out/dist
+          git -c safe.directory='*' -C req42 ls-files -m -o --exclude-standard -- dist \
+            | grep '\.zip$' > out/dist-files.txt || true
+          while read -r f; do cp "req42/$f" out/dist/; done < out/dist-files.txt
+          cp req42/build.log build-info.txt out/ 2>/dev/null || true
+          {
+            echo "### Generator build"
+            echo '```'
+            cat build-info.txt
+            echo '```'
+            echo "Generated ZIPs: $(wc -l < out/dist-files.txt)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload artifact
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: req42-dist-${{ github.sha }}
+          path: out/
+          compression-level: 0
+          retention-days: 30
+          if-no-files-found: warn
