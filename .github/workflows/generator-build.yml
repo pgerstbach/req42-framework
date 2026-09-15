@@ -1,8 +1,10 @@
-# Builds all req42 distributions with arc42-generator and publishes them as
-# a workflow artifact, for review before committing dist/.
+# Checks both ways of building req42:
+# - build: all distributions with arc42-generator, published as a workflow
+#   artifact for review before committing dist/.
+#   GENERATOR_REPO/GENERATOR_REF point to the generator version to build with.
+# - local-gradle-build: the local preview build (build.gradle, gradle asciidoctor).
 #
-# Lives on ci/* branches of this fork only. GENERATOR_REPO/GENERATOR_REF
-# point to the generator version to build with.
+# Lives on ci/* branches of this fork only.
 
 name: Generator build
 
@@ -83,5 +85,66 @@ jobs:
           name: req42-dist-${{ github.sha }}
           path: out/
           compression-level: 0
+          retention-days: 30
+          if-no-files-found: warn
+
+  local-gradle-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [DE, EN]
+        # 7.6.5: environment from #15, 8.14.5: latest 8.x
+        gradle: ['7.6.5', '8.14.5']
+
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - uses: gradle/actions/setup-gradle@v6
+        with:
+          gradle-version: ${{ matrix.gradle }}
+
+      - name: Select language
+        run: |
+          sed -i "s/^def LANGUAGE = 'DE'/def LANGUAGE = '${{ matrix.language }}'/" build.gradle
+          grep -n "^def LANGUAGE" build.gradle
+
+      - name: gradle asciidoctor
+        run: gradle asciidoctor --no-daemon --stacktrace
+
+      - name: Check output
+        run: |
+          html=$(find build -name 'req42-framework.html' | head -1)
+          if [ -z "$html" ]; then
+            echo "::error::no req42-framework.html produced"; find build -type f | head -20; exit 1
+          fi
+          help=$(grep -o 'sidebarblock req42help' "$html" | wc -l)
+          version=$(grep -o 'Template Revision: [^<]*' "$html" | head -1)
+          {
+            echo "### gradle ${{ matrix.gradle }} / ${{ matrix.language }}"
+            echo "- HTML: \`$html\`"
+            echo "- help blocks: $help"
+            echo "- version: $version"
+          } >> "$GITHUB_STEP_SUMMARY"
+          failed=0
+          [ "$help" -eq 13 ] || { echo "::error::expected 13 help blocks, got $help"; failed=1; }
+          echo "$version" | grep -q "2.0-${{ matrix.language }}" || { echo "::error::version not resolved: '$version'"; failed=1; }
+          ! grep -q '{revnumber}' "$html" || { echo "::error::unresolved {revnumber}"; failed=1; }
+          ! grep -q 'Unresolved directive' "$html" || { echo "::error::unresolved include"; grep -o 'Unresolved directive[^<]*' "$html"; failed=1; }
+          [ -f "$(dirname "$html")/images/REQ42-logo.png" ] || { echo "::error::logo not copied next to the HTML"; failed=1; }
+          exit $failed
+
+      - name: Upload HTML
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: gradle-html-${{ matrix.language }}-${{ matrix.gradle }}
+          path: build/
           retention-days: 30
           if-no-files-found: warn
