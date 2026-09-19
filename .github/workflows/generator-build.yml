@@ -21,8 +21,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  GENERATOR_REPO: pgerstbach/arc42-generator
-  GENERATOR_REF: feature/project-neutral
+  GENERATOR_REPO: arc42/arc42-generator
+  GENERATOR_REF: b07a9a994474e9c7eab7b02f621c1def5832a5b1  # merge of arc42/arc42-generator#66
 
 jobs:
   build:
