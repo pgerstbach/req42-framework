@@ -134,7 +134,8 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
           failed=0
           [ "$help" -eq 13 ] || { echo "::error::expected 13 help blocks, got $help"; failed=1; }
-          echo "$version" | grep -q "2.0-${{ matrix.language }}" || { echo "::error::version not resolved: '$version'"; failed=1; }
+          expected=$(grep '^revnumber=' ${{ matrix.language }}/version.properties | cut -d= -f2)
+          echo "$version" | grep -qF "$expected" || { echo "::error::expected version $expected, got '$version'"; failed=1; }
           ! grep -q '{revnumber}' "$html" || { echo "::error::unresolved {revnumber}"; failed=1; }
           ! grep -q 'Unresolved directive' "$html" || { echo "::error::unresolved include"; grep -o 'Unresolved directive[^<]*' "$html"; failed=1; }
           [ -f "$(dirname "$html")/images/REQ42-logo.png" ] || { echo "::error::logo not copied next to the HTML"; failed=1; }
