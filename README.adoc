@@ -57,6 +57,9 @@ docker compose run --rm -v /path/to/req42-framework:/project arc42-builder \
 The ZIPs are written to `dist/` of this repository.
 Review and commit them - https://req42.de/download links to them directly.
 
+`release.sh` does the same and prepares the pull request: it builds and validates with arc42-generator (expected next to this repository, or set `GENERATOR`), and commits `dist/` to a new branch `dist/<date>-<sha>`, which it pushes to `origin`.
+Use `./release.sh --no-push` to review the commit first.
+
 === Releasing a New Version
 
 . Raise the version in *both* languages, and in *two places* per language:
